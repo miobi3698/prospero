@@ -57,18 +57,19 @@ fn remap_range(value: i64, start1: i64, stop1: i64, start2: i64, stop2: i64) -> 
     (value - start1) as f64 / (stop1 - start1) as f64 * (stop2 - start2) as f64 + start2 as f64
 }
 
+const IMAGE_SIZE: i64 = 512;
+const IMAGE_CAP: usize = (IMAGE_SIZE * IMAGE_SIZE) as usize;
+
 fn main() {
-    let image_size = 512;
-    let image_cap = (image_size * image_size) as usize;
     let timer = std::time::Instant::now();
     let source = std::fs::read_to_string("prospero.vm").unwrap();
     let program = parse(&source);
 
-    let mut image = Vec::<u8>::with_capacity(image_cap);
-    for i in 0..image_size {
-        let y = remap_range(i, 0, image_size, -1, 1);
-        for j in 0..image_size {
-            let x = remap_range(j, 0, image_size, -1, 1);
+    let mut image: Vec<u8> = Vec::with_capacity(IMAGE_CAP);
+    for i in 0..IMAGE_SIZE {
+        let y = remap_range(i, 0, IMAGE_SIZE, 1, -1);
+        for j in 0..IMAGE_SIZE {
+            let x = remap_range(j, 0, IMAGE_SIZE, -1, 1);
             let mut memory = Vec::<f64>::with_capacity(program.len());
 
             for inst in &program {
@@ -88,7 +89,7 @@ fn main() {
             }
 
             image.push((memory[program.len() - 1] < 0.0) as u8 * 255);
-            eprint!("\rProgress: {}/{}", i * image_size + j + 1, image_cap);
+            eprint!("\rProgress: {}/{}", i * IMAGE_SIZE + j + 1, IMAGE_CAP);
         }
     }
     eprintln!("\nDone in {}s.", timer.elapsed().as_secs_f64());
@@ -96,7 +97,7 @@ fn main() {
     // Swapped to flat memory: 44.731658977s
 
     let image_data = [
-        format!("P5\n{image_size} {image_size}\n255\n").as_bytes(),
+        format!("P5\n{IMAGE_SIZE} {IMAGE_SIZE}\n255\n").as_bytes(),
         image.as_slice(),
     ]
     .concat();

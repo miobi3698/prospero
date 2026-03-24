@@ -56,18 +56,18 @@ fn remap_range(value: i32, start1: i32, stop1: i32, start2: i32, stop2: i32) -> 
 }
 
 fn main() {
-    let source = std::fs::read_to_string("prospero.vm").unwrap();
     let image_size = 512;
     let image_cap = (image_size * image_size) as usize;
 
+    let timer = std::time::Instant::now();
+    let source = std::fs::read_to_string("prospero.vm").unwrap();
     let program = parse(&source);
-
     let mut image = Vec::<u8>::with_capacity(image_cap);
     let mut memory = std::collections::HashMap::<&str, f32>::new();
     for i in 0..image_size {
+        let y = remap_range(i, image_size, 0, -1, 1);
         for j in 0..image_size {
             let x = remap_range(j, 0, image_size, -1, 1);
-            let y = remap_range(i, 0, image_size, -1, 1);
 
             for inst in &program {
                 memory.insert(
@@ -88,20 +88,17 @@ fn main() {
                 );
             }
 
-            let out = memory[program.last().unwrap().addr];
-            image.push((out < 0.0) as u8 * 255);
+            image.push((memory[program.last().unwrap().addr] < 0.0) as u8 * 255);
             eprint!("\rProgress: {}/{}", i * image_size + j + 1, image_cap);
         }
     }
-    eprintln!("\nDone.");
+    eprintln!("\nDone in {}s.", timer.elapsed().as_secs_f64());
+    // Initial implementation: 1476.815809719s
 
-    std::fs::write(
-        "out.ppm",
-        [
-            format!("P5\n{image_size} {image_size}\n255\n").as_bytes(),
-            image.as_slice(),
-        ]
-        .concat(),
-    )
-    .unwrap();
+    let image_data = [
+        format!("P5\n{image_size} {image_size}\n255\n").as_bytes(),
+        image.as_slice(),
+    ]
+    .concat();
+    std::fs::write("out.ppm", image_data).unwrap();
 }

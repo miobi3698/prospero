@@ -1,5 +1,4 @@
-#[derive(Debug)]
-enum Op {
+enum Inst {
     VarX,
     VarY,
     Const(f64),
@@ -11,11 +10,6 @@ enum Op {
     Neg(usize),
     Square(usize),
     Sqrt(usize),
-}
-
-#[derive(Debug)]
-struct Inst {
-    op: Op,
 }
 
 fn translate_address(addr: &str) -> usize {
@@ -31,22 +25,20 @@ fn parse(source: &str) -> Vec<Inst> {
         }
 
         let inst = line.split_whitespace().collect::<Vec<_>>();
-        let op = match inst[1] {
-            "var-x" => Op::VarX,
-            "var-y" => Op::VarY,
-            "const" => Op::Const(str::parse(inst[2]).unwrap()),
-            "add" => Op::Add(translate_address(inst[2]), translate_address(inst[3])),
-            "sub" => Op::Sub(translate_address(inst[2]), translate_address(inst[3])),
-            "mul" => Op::Mul(translate_address(inst[2]), translate_address(inst[3])),
-            "max" => Op::Max(translate_address(inst[2]), translate_address(inst[3])),
-            "min" => Op::Min(translate_address(inst[2]), translate_address(inst[3])),
-            "neg" => Op::Neg(translate_address(inst[2])),
-            "square" => Op::Square(translate_address(inst[2])),
-            "sqrt" => Op::Sqrt(translate_address(inst[2])),
+        program.push(match inst[1] {
+            "var-x" => Inst::VarX,
+            "var-y" => Inst::VarY,
+            "const" => Inst::Const(str::parse(inst[2]).unwrap()),
+            "add" => Inst::Add(translate_address(inst[2]), translate_address(inst[3])),
+            "sub" => Inst::Sub(translate_address(inst[2]), translate_address(inst[3])),
+            "mul" => Inst::Mul(translate_address(inst[2]), translate_address(inst[3])),
+            "max" => Inst::Max(translate_address(inst[2]), translate_address(inst[3])),
+            "min" => Inst::Min(translate_address(inst[2]), translate_address(inst[3])),
+            "neg" => Inst::Neg(translate_address(inst[2])),
+            "square" => Inst::Square(translate_address(inst[2])),
+            "sqrt" => Inst::Sqrt(translate_address(inst[2])),
             _ => unreachable!(),
-        };
-
-        program.push(Inst { op });
+        });
     }
 
     program
@@ -57,44 +49,71 @@ fn remap_range(value: i64, start1: i64, stop1: i64, start2: i64, stop2: i64) -> 
     (value - start1) as f64 / (stop1 - start1) as f64 * (stop2 - start2) as f64 + start2 as f64
 }
 
-const IMAGE_SIZE: i64 = 512;
+const IMAGE_SIZE: usize = 512;
 const IMAGE_CAP: usize = (IMAGE_SIZE * IMAGE_SIZE) as usize;
 
 fn main() {
-    let timer = std::time::Instant::now();
     let source = std::fs::read_to_string("prospero.vm").unwrap();
-    let program = parse(&source);
 
-    let mut image: Vec<u8> = Vec::with_capacity(IMAGE_CAP);
+    let timer = std::time::Instant::now();
+    let program = std::sync::Arc::new(parse(&source));
+
+    let mut coords: Vec<(f64, f64)> = Vec::with_capacity(IMAGE_CAP);
     for i in 0..IMAGE_SIZE {
-        let y = remap_range(i, 0, IMAGE_SIZE, 1, -1);
+        let y = remap_range(i as i64, 0, IMAGE_SIZE as i64, 1, -1);
         for j in 0..IMAGE_SIZE {
-            let x = remap_range(j, 0, IMAGE_SIZE, -1, 1);
-            let mut memory = Vec::<f64>::with_capacity(program.len());
+            let x = remap_range(j as i64, 0, IMAGE_SIZE as i64, -1, 1);
+            coords.push((x, y));
+        }
+    }
 
-            for inst in &program {
-                memory.push(match inst.op {
-                    Op::VarX => x,
-                    Op::VarY => y,
-                    Op::Const(v) => v,
-                    Op::Add(a1, a2) => memory[a1] + memory[a2],
-                    Op::Sub(a1, a2) => memory[a1] - memory[a2],
-                    Op::Mul(a1, a2) => memory[a1] * memory[a2],
-                    Op::Max(a1, a2) => f64::max(memory[a1], memory[a2]),
-                    Op::Min(a1, a2) => f64::min(memory[a1], memory[a2]),
-                    Op::Neg(a) => -memory[a],
-                    Op::Square(a) => memory[a] * memory[a],
-                    Op::Sqrt(a) => f64::sqrt(memory[a]),
-                });
+    let thread_pool_size = std::thread::available_parallelism().unwrap().get();
+    let progress = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let mut handles = Vec::new();
+    for chunk in coords.chunks(IMAGE_CAP / thread_pool_size) {
+        let chunk = chunk.to_owned();
+        let program = std::sync::Arc::clone(&program);
+        let progress = std::sync::Arc::clone(&progress);
+        let handle = std::thread::spawn(move || {
+            let mut image: Vec<u8> = Vec::with_capacity(chunk.len());
+            let mut memory = Vec::<f64>::with_capacity(program.len());
+            for (x, y) in chunk {
+                for inst in program.iter() {
+                    memory.push(match *inst {
+                        Inst::VarX => x,
+                        Inst::VarY => y,
+                        Inst::Const(v) => v,
+                        Inst::Add(a1, a2) => memory[a1] + memory[a2],
+                        Inst::Sub(a1, a2) => memory[a1] - memory[a2],
+                        Inst::Mul(a1, a2) => memory[a1] * memory[a2],
+                        Inst::Max(a1, a2) => f64::max(memory[a1], memory[a2]),
+                        Inst::Min(a1, a2) => f64::min(memory[a1], memory[a2]),
+                        Inst::Neg(a) => -memory[a],
+                        Inst::Square(a) => memory[a] * memory[a],
+                        Inst::Sqrt(a) => f64::sqrt(memory[a]),
+                    });
+                }
+
+                image.push((memory[program.len() - 1] < 0.0) as u8 * 255);
+                let count = progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                eprint!("\rProgress: {}/{} pixels", count, IMAGE_CAP);
+                memory.clear();
             }
 
-            image.push((memory[program.len() - 1] < 0.0) as u8 * 255);
-            eprint!("\rProgress: {}/{}", i * IMAGE_SIZE + j + 1, IMAGE_CAP);
-        }
+            image
+        });
+        handles.push(handle);
+    }
+
+    let mut image = Vec::new();
+    for handle in handles {
+        image.extend_from_slice(&handle.join().unwrap());
     }
     eprintln!("\nDone in {}s.", timer.elapsed().as_secs_f64());
     // Initial implementation: 1476.815809719s
     // Swapped to flat memory: 44.731658977s
+    // Moved to multithreading: 7.466684195s
 
     let image_data = [
         format!("P5\n{IMAGE_SIZE} {IMAGE_SIZE}\n255\n").as_bytes(),

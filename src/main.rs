@@ -49,7 +49,7 @@ fn remap_range(value: i64, start1: i64, stop1: i64, start2: i64, stop2: i64) -> 
     (value - start1) as f64 / (stop1 - start1) as f64 * (stop2 - start2) as f64 + start2 as f64
 }
 
-const IMAGE_SIZE: usize = 512;
+const IMAGE_SIZE: usize = 1024;
 const IMAGE_CAP: usize = (IMAGE_SIZE * IMAGE_SIZE) as usize;
 
 fn main() {
@@ -111,9 +111,14 @@ fn main() {
         image.extend_from_slice(&handle.join().unwrap());
     }
     eprintln!("\nDone in {}s.", timer.elapsed().as_secs_f64());
+
+    // 512x512
     // Initial implementation: 1476.815809719s
     // Swapped to flat memory: 44.731658977s
     // Moved to multithreading: 7.466684195s
+
+    // 1024x1024
+    // Multithreading: 30.092374533s
 
     let image_data = [
         format!("P5\n{IMAGE_SIZE} {IMAGE_SIZE}\n255\n").as_bytes(),

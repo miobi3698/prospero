@@ -68,7 +68,8 @@ fn remap_range(value: i64, start1: i64, stop1: i64, start2: i64, stop2: i64) -> 
 }
 
 const IMAGE_SIZE: usize = 512;
-const IMAGE_CAP: usize = (IMAGE_SIZE * IMAGE_SIZE) as usize;
+// const IMAGE_SIZE: usize = 1024;
+const IMAGE_CAP: usize = IMAGE_SIZE * IMAGE_SIZE;
 
 fn main() {
     let source = std::fs::read_to_string("prospero.vm").unwrap();
@@ -76,7 +77,7 @@ fn main() {
     let timer = std::time::Instant::now();
 
     let program = std::sync::Arc::new(parse(&source));
-    let image = std::sync::Arc::new(std::sync::Mutex::new(vec![0 as u8; IMAGE_CAP]));
+    let image = vec![0 as u8; IMAGE_CAP];
 
     let chunk_count = std::thread::available_parallelism().unwrap().get();
     let chunk_size = IMAGE_CAP.div_ceil(chunk_count);
@@ -86,11 +87,12 @@ fn main() {
     for chunk_id in 0..chunk_count {
         let program = program.clone();
         let progress = progress.clone();
-        let image = image.clone();
+        let low = chunk_id * chunk_size;
+        let high = ((chunk_id + 1) * chunk_size).min(IMAGE_CAP);
+        let mut image = image.to_owned();
+        let mut memory = vec![0.0; program.len()];
+
         let handle = std::thread::spawn(move || {
-            let mut memory = vec![0.0; program.len()];
-            let low = chunk_id * chunk_size;
-            let high = ((chunk_id + 1) * chunk_size).min(IMAGE_CAP);
             for idx in low..high {
                 let x = idx % IMAGE_SIZE;
                 let y = idx / IMAGE_SIZE;
@@ -98,8 +100,7 @@ fn main() {
                 let vx = remap_range(x as i64, 0, IMAGE_SIZE as i64, -1, 1);
 
                 exec(&program, &mut memory, vx, vy);
-                image.lock().unwrap()[y * IMAGE_SIZE + x] =
-                    (*memory.last().unwrap() < 0.0) as u8 * 255;
+                image[y * IMAGE_SIZE + x] = (*memory.last().unwrap() < 0.0) as u8 * 255;
                 let count = progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 eprint!("\rProgress: {}/{} pixels", count, IMAGE_CAP);
             }
@@ -118,13 +119,14 @@ fn main() {
     // Swapped to flat memory: 44.731658977s
     // Moved to multithreading: 7.466684195s
     // Swapped to flat image: 6.111408442s
+    // Moved arc-mutex to owned image: 6.5873183730000004s
 
     // 1024x1024
     // Multithreading: 30.092374533s
 
     let image_data = [
         format!("P5\n{IMAGE_SIZE} {IMAGE_SIZE}\n255\n").as_bytes(),
-        image.lock().unwrap().as_slice(),
+        image.as_slice(),
     ]
     .concat();
     std::fs::write("out.ppm", image_data).unwrap();

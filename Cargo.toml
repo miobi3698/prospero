@@ -1,7 +1,3 @@
-[package]
-name = "prospero"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-rayon = "1.12.0"
+[workspace]
+members = ["crates/*"]
+resolver = "3"

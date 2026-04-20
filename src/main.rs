@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 enum Inst {
     VarX,
     VarY,
@@ -73,44 +75,28 @@ const IMAGE_CAP: usize = IMAGE_SIZE * IMAGE_SIZE;
 
 fn main() {
     let source = std::fs::read_to_string("prospero.vm").unwrap();
-
     let timer = std::time::Instant::now();
-
-    let program = std::sync::Arc::new(parse(&source));
-    let image = vec![0 as u8; IMAGE_CAP];
-
-    let chunk_count = std::thread::available_parallelism().unwrap().get();
-    let chunk_size = IMAGE_CAP.div_ceil(chunk_count);
+    let program = parse(&source);
     let progress = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
-    let mut handles = Vec::new();
-    for chunk_id in 0..chunk_count {
-        let program = program.clone();
-        let progress = progress.clone();
-        let low = chunk_id * chunk_size;
-        let high = ((chunk_id + 1) * chunk_size).min(IMAGE_CAP);
-        let mut image = image.to_owned();
-        let mut memory = vec![0.0; program.len()];
+    let image: Vec<u8> = (0..IMAGE_CAP)
+        .into_par_iter()
+        .map(|idx| {
+            let progress = progress.clone();
+            let mut memory = vec![0.0; program.len()];
 
-        let handle = std::thread::spawn(move || {
-            for idx in low..high {
-                let x = idx % IMAGE_SIZE;
-                let y = idx / IMAGE_SIZE;
-                let vy = remap_range(y as i64, 0, IMAGE_SIZE as i64, 1, -1);
-                let vx = remap_range(x as i64, 0, IMAGE_SIZE as i64, -1, 1);
+            let x = idx % IMAGE_SIZE;
+            let y = idx / IMAGE_SIZE;
+            let vy = remap_range(y as i64, 0, IMAGE_SIZE as i64, 1, -1);
+            let vx = remap_range(x as i64, 0, IMAGE_SIZE as i64, -1, 1);
 
-                exec(&program, &mut memory, vx, vy);
-                image[y * IMAGE_SIZE + x] = (*memory.last().unwrap() < 0.0) as u8 * 255;
-                let count = progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                eprint!("\rProgress: {}/{} pixels", count, IMAGE_CAP);
-            }
-        });
-        handles.push(handle);
-    }
+            exec(&program, &mut memory, vx, vy);
+            let count = progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            eprint!("\rProgress: {}/{} pixels", count + 1, IMAGE_CAP);
 
-    for handle in handles {
-        handle.join().unwrap();
-    }
+            (*memory.last().unwrap() < 0.0) as u8 * 255
+        })
+        .collect();
 
     eprintln!("\nDone in {}s.", timer.elapsed().as_secs_f64());
 
@@ -119,7 +105,8 @@ fn main() {
     // Swapped to flat memory: 44.731658977s
     // Moved to multithreading: 7.466684195s
     // Swapped to flat image: 6.111408442s
-    // Moved arc-mutex to owned image: 6.5873183730000004s
+    // Moved arc-mutex to owned image: 6.5873183730000004s (invalid: wrong result)
+    // Moved to rayon: 6.382879828s
 
     // 1024x1024
     // Multithreading: 30.092374533s

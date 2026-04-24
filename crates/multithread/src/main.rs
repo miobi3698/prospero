@@ -76,18 +76,19 @@ fn main() {
         let mut chunk = vec![0 as u8; high - low];
 
         handles.push(std::thread::spawn(move || {
+            let last_idx = program.len() - 1;
             for i in low..high {
                 let x = (i % IMAGE_SIZE) as f32 / IMAGE_SIZE as f32 * 2.0 - 1.0;
                 let y = (IMAGE_SIZE - (i / IMAGE_SIZE) - 1) as f32 / IMAGE_SIZE as f32 * 2.0 - 1.0;
                 exec(&program, &mut memory, x, y);
-                chunk[i - low] = (*memory.last().unwrap() < 0.0) as u8 * 255;
+                chunk[i - low] = (memory[last_idx] < 0.0) as u8 * 255;
             }
 
             chunk
         }));
     }
 
-    let mut image = Vec::new();
+    let mut image = Vec::with_capacity(IMAGE_SIZE * IMAGE_SIZE);
     for handle in handles {
         image.extend(handle.join().unwrap());
     }

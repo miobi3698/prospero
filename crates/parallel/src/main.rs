@@ -1,3 +1,5 @@
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
 enum Inst {
     VarX,
     VarY,
@@ -61,21 +63,27 @@ const IMAGE_SIZE: usize = 256;
 fn main() {
     let source = std::fs::read_to_string("prospero.vm").unwrap();
     let program = parse(&source);
-    let mut memory = vec![0.0; program.len()];
 
-    let mut image = Vec::with_capacity(IMAGE_SIZE * IMAGE_SIZE);
-    let last_idx = program.len() - 1;
-    for i in 0..IMAGE_SIZE {
-        let y = (IMAGE_SIZE - i - 1) as f32 / IMAGE_SIZE as f32 * 2.0 - 1.0;
-        for j in 0..IMAGE_SIZE {
-            let x = j as f32 / IMAGE_SIZE as f32 * 2.0 - 1.0;
-            exec(&program, &mut memory, x, y);
-            image.push((memory[last_idx] < 0.0) as u8 * 255);
-        }
-    }
+    let image: Vec<u8> = (0..IMAGE_SIZE)
+        .into_par_iter()
+        .map(|i| {
+            let y = (IMAGE_SIZE - i - 1) as f32 / IMAGE_SIZE as f32 * 2.0 - 1.0;
+            (0..IMAGE_SIZE)
+                .into_par_iter()
+                .map(|j| {
+                    let x = j as f32 / IMAGE_SIZE as f32 * 2.0 - 1.0;
+                    let mut memory = vec![0.0; program.len()];
+                    let last_idx = program.len() - 1;
+                    exec(&program, &mut memory, x, y);
+                    (memory[last_idx] < 0.0) as u8 * 255
+                })
+                .collect::<Vec<_>>()
+        })
+        .flatten()
+        .collect();
 
     std::fs::write(
-        "out-bytecode.ppm",
+        "out-parallel.ppm",
         [
             format!("P5\n{IMAGE_SIZE} {IMAGE_SIZE}\n255\n").as_bytes(),
             image.as_slice(),

@@ -6,7 +6,7 @@ fn main() {
     let source = std::fs::read_to_string("prospero.vm").unwrap();
     let mut memory = HashMap::new();
 
-    let mut image = Vec::new();
+    let mut image = Vec::with_capacity(IMAGE_SIZE * IMAGE_SIZE);
     for i in 0..IMAGE_SIZE {
         let y = (IMAGE_SIZE - i - 1) as f32 / IMAGE_SIZE as f32 * 2.0 - 1.0;
         for j in 0..IMAGE_SIZE {
